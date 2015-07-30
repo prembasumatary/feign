@@ -46,11 +46,9 @@ import static feign.Util.valuesOrEmpty;
 public final class RequestTemplate implements Serializable {
 
   private static final long serialVersionUID = 1L;
-  private final Map<String, Collection<String>>
-      queries =
+  private final Map<String, Collection<String>> queries =
       new LinkedHashMap<String, Collection<String>>();
-  private final Map<String, Collection<String>>
-      headers =
+  private final Map<String, Collection<String>> headers =
       new LinkedHashMap<String, Collection<String>>();
   private String method;
   /* final to encourage mutable use vs replacing the object. */
@@ -58,6 +56,7 @@ public final class RequestTemplate implements Serializable {
   private transient Charset charset;
   private byte[] body;
   private String bodyTemplate;
+  private boolean decodeSlash = true;
 
   public RequestTemplate() {
 
@@ -73,6 +72,7 @@ public final class RequestTemplate implements Serializable {
     this.charset = toCopy.charset;
     this.body = toCopy.body;
     this.bodyTemplate = toCopy.bodyTemplate;
+    this.decodeSlash = toCopy.decodeSlash;
   }
 
   private static String urlDecode(String arg) {
@@ -88,6 +88,18 @@ public final class RequestTemplate implements Serializable {
       return URLEncoder.encode(String.valueOf(arg), UTF_8.name());
     } catch (UnsupportedEncodingException e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  private static boolean isHttpUrl(CharSequence value) {
+    return value.length() >= 4 && value.subSequence(0, 3).equals("http".substring(0,  3));
+  }
+
+  private static CharSequence removeTrailingSlash(CharSequence charSequence) {
+    if (charSequence != null && charSequence.length() > 0 && charSequence.charAt(charSequence.length() - 1) == '/') {
+      return charSequence.subSequence(0, charSequence.length() - 1);
+    } else {
+      return charSequence;
     }
   }
 
@@ -190,7 +202,10 @@ public final class RequestTemplate implements Serializable {
     for (Entry<String, ?> entry : unencoded.entrySet()) {
       encoded.put(entry.getKey(), urlEncode(String.valueOf(entry.getValue())));
     }
-    String resolvedUrl = expand(url.toString(), encoded).replace("%2F", "/");
+    String resolvedUrl = expand(url.toString(), encoded).replace("+", "%20");
+    if (decodeSlash) {
+    	resolvedUrl = resolvedUrl.replace("%2F", "/");
+    }
     url = new StringBuilder(resolvedUrl);
 
     Map<String, Collection<String>>
@@ -221,8 +236,14 @@ public final class RequestTemplate implements Serializable {
 
   /* roughly analogous to {@code javax.ws.rs.client.Target.request()}. */
   public Request request() {
-    return new Request(method, new StringBuilder(url).append(queryLine()).toString(),
-                       headers, body, charset);
+    Map<String, Collection<String>> safeCopy = new LinkedHashMap<String, Collection<String>>();
+    safeCopy.putAll(headers);
+    return Request.create(
+        method,
+        new StringBuilder(url).append(queryLine()).toString(),
+        Collections.unmodifiableMap(safeCopy),
+        body, charset
+    );
   }
 
   /* @see Request#method() */
@@ -230,12 +251,21 @@ public final class RequestTemplate implements Serializable {
     this.method = checkNotNull(method, "method");
     return this;
   }
-
+  
   /* @see Request#method() */
   public String method() {
     return method;
   }
 
+  public RequestTemplate decodeSlash(boolean decodeSlash) {
+	  this.decodeSlash = decodeSlash;
+	  return this;
+  }
+  
+  public boolean decodeSlash() {
+	  return decodeSlash;
+  }
+  
   /* @see #url() */
   public RequestTemplate append(CharSequence value) {
     url.append(value);
@@ -245,6 +275,12 @@ public final class RequestTemplate implements Serializable {
 
   /* @see #url() */
   public RequestTemplate insert(int pos, CharSequence value) {
+    if(isHttpUrl(value)) {
+      value = removeTrailingSlash(value);
+      if(url.length() > 0 && url.charAt(0) != '/') {
+        url.insert(0, '/');
+      }
+    }
     url.insert(pos, pullAnyQueriesOutOfUrl(new StringBuilder(value)));
     return this;
   }

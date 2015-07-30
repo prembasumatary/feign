@@ -55,6 +55,50 @@ public class FeignBuilderTest {
   }
 
   @Test
+  public void testUrlPathConcatUrlTrailingSlash() throws Exception {
+    server.enqueue(new MockResponse().setBody("response data"));
+
+    String url = "http://localhost:" + server.getPort() + "/";
+    TestInterface api = Feign.builder().target(TestInterface.class, url);
+
+    api.codecPost("request data");
+    assertThat(server.takeRequest()).hasPath("/");
+  }
+
+  @Test
+  public void testUrlPathConcatNoPathOnRequestLine() throws Exception {
+    server.enqueue(new MockResponse().setBody("response data"));
+
+    String url = "http://localhost:" + server.getPort() + "/";
+    TestInterface api = Feign.builder().target(TestInterface.class, url);
+
+    api.getNoPath();
+    assertThat(server.takeRequest()).hasPath("/");
+  }
+
+  @Test
+  public void testUrlPathConcatNoInitialSlashOnPath() throws Exception {
+    server.enqueue(new MockResponse().setBody("response data"));
+
+    String url = "http://localhost:" + server.getPort() + "/";
+    TestInterface api = Feign.builder().target(TestInterface.class, url);
+
+    api.getNoInitialSlashOnSlash();
+    assertThat(server.takeRequest()).hasPath("/api/thing");
+  }
+
+  @Test
+  public void testUrlPathConcatNoInitialSlashOnPathNoTrailingSlashOnUrl() throws Exception {
+    server.enqueue(new MockResponse().setBody("response data"));
+
+    String url = "http://localhost:" + server.getPort();
+    TestInterface api = Feign.builder().target(TestInterface.class, url);
+
+    api.getNoInitialSlashOnSlash();
+    assertThat(server.takeRequest()).hasPath("/api/thing");
+  }
+
+  @Test
   public void testOverrideEncoder() throws Exception {
     server.enqueue(new MockResponse().setBody("response data"));
 
@@ -141,8 +185,28 @@ public class FeignBuilderTest {
     assertThat(server.takeRequest())
         .hasBody("request data");
   }
+  
+  @Test
+  public void testSlashIsEncodedInPathParams() throws Exception {
+    server.enqueue(new MockResponse().setBody("response data"));
+
+    String url = "http://localhost:" + server.getPort();
+
+    TestInterface
+        api =
+        Feign.builder().target(TestInterface.class, url);
+    api.getQueues("/");
+
+    assertThat(server.takeRequest())
+        .hasPath("/api/queues/%2F");
+  }
 
   interface TestInterface {
+    @RequestLine("GET")
+    Response getNoPath();
+
+    @RequestLine("GET api/thing")
+    Response getNoInitialSlashOnSlash();
 
     @RequestLine("POST /")
     Response codecPost(String data);
@@ -152,5 +216,8 @@ public class FeignBuilderTest {
 
     @RequestLine("POST /")
     String decodedPost();
+    
+    @RequestLine(value = "GET /api/queues/{vhost}", decodeSlash = false)
+    String getQueues(@Param("vhost") String vhost);
   }
 }

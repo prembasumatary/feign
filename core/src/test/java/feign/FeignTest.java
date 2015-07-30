@@ -157,6 +157,19 @@ public class FeignTest {
   }
 
   @Test
+  public void postDeflateEncodedBodyParam() throws Exception {
+    server.enqueue(new MockResponse().setBody("foo"));
+
+    TestInterface api = new TestInterfaceBuilder().target("http://localhost:" + server.getPort());
+
+    api.deflateBody(Arrays.asList("netflix", "denominator", "password"));
+
+    assertThat(server.takeRequest())
+        .hasNoHeaderNamed("Content-Length")
+        .hasDeflatedBody("[netflix, denominator, password]".getBytes(UTF_8));
+  }
+
+  @Test
   public void singleInterceptor() throws Exception {
     server.enqueue(new MockResponse().setBody("foo"));
 
@@ -198,13 +211,19 @@ public class FeignTest {
   }
 
   @Test
-  public void toKeyMethodFormatsAsExpected() throws Exception {
+  public void configKeyFormatsAsExpected() throws Exception {
     assertEquals("TestInterface#post()",
                  Feign.configKey(TestInterface.class.getDeclaredMethod("post")));
     assertEquals("TestInterface#uriParam(String,URI,String)",
                  Feign.configKey(TestInterface.class
                                      .getDeclaredMethod("uriParam", String.class, URI.class,
                                                         String.class)));
+  }
+
+  @Test
+  public void configKeyUsesChildType() throws Exception {
+    assertEquals("List#iterator()",
+                 Feign.configKey(List.class, Iterable.class.getDeclaredMethod("iterator")));
   }
 
   @Test
@@ -286,6 +305,50 @@ public class FeignTest {
         }).target("http://localhost:" + server.getPort());
 
     api.post();
+  }
+
+  @Test
+  public void ensureRetryerClonesItself() {
+    server.enqueue(new MockResponse().setResponseCode(503).setBody("foo 1"));
+    server.enqueue(new MockResponse().setResponseCode(200).setBody("foo 2"));
+    server.enqueue(new MockResponse().setResponseCode(503).setBody("foo 3"));
+    server.enqueue(new MockResponse().setResponseCode(200).setBody("foo 4"));
+
+    MockRetryer retryer = new MockRetryer();
+
+    TestInterface api = Feign.builder()
+      .retryer(retryer)
+      .errorDecoder(new ErrorDecoder()
+      {
+        @Override
+        public Exception decode(String methodKey, Response response)
+        {
+          return new RetryableException("play it again sam!", null);
+        }
+      }).target(TestInterface.class, "http://localhost:" + server.getPort());
+
+    api.response();
+    api.response(); // if retryer instance was reused, this statement will throw an exception
+    assertEquals(4, server.getRequestCount());
+  }
+
+  private static class MockRetryer implements Retryer
+  {
+    boolean tripped;
+
+    @Override
+    public void continueOrPropagate(RetryableException e) {
+      if (tripped) {
+        throw new RuntimeException("retryer instance should never be reused");
+      }
+      tripped = true;
+      return;
+    }
+
+    @Override
+    public Retryer clone() {
+        return new MockRetryer();
+    }
   }
 
   @Test
@@ -408,6 +471,10 @@ public class FeignTest {
     @RequestLine("POST /")
     @Headers("Content-Encoding: gzip")
     void gzipBody(List<String> contents);
+
+    @RequestLine("POST /")
+    @Headers("Content-Encoding: deflate")
+    void deflateBody(List<String> contents);
 
     @RequestLine("POST /")
     void form(

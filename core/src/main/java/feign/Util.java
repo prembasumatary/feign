@@ -58,6 +58,10 @@ public class Util {
    */
   public static final String ENCODING_GZIP = "gzip";
   /**
+   * Value for the Content-Encoding header that indicates that DEFLATE encoding is in use.
+   */
+  public static final String ENCODING_DEFLATE = "deflate";
+  /**
    * UTF-8: eight-bit UCS Transformation Format.
    */
   public static final Charset UTF_8 = Charset.forName("UTF-8");
@@ -164,8 +168,7 @@ public class Util {
    */
   public static Type resolveLastTypeParameter(Type genericContext, Class<?> supertype)
       throws IllegalStateException {
-    Type
-        resolvedSuperType =
+    Type resolvedSuperType =
         Types.getSupertype(genericContext, Types.getRawType(genericContext), supertype);
     checkState(resolvedSuperType instanceof ParameterizedType,
                "could not resolve %s into a parameterized type %s",

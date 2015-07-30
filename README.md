@@ -1,4 +1,6 @@
 # Feign makes writing java http clients easier
+
+[![Join the chat at https://gitter.im/Netflix/feign](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/Netflix/feign?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 Feign is a java to http client binder inspired by [Retrofit](https://github.com/square/retrofit), [JAXRS-2.0](https://jax-rs-spec.java.net/nonav/2.0/apidocs/index.html), and [WebSocket](http://www.oracle.com/technetwork/articles/java/jsr356-1937161.html).  Feign's first goal was reducing the complexity of binding [Denominator](https://github.com/Netflix/Denominator) uniformly to http apis regardless of [restfulness](http://www.slideshare.net/adrianfcole/99problems).
 
 ### Why Feign and not X?
@@ -60,7 +62,8 @@ Feign feign = Feign.builder().build();
 CloudDNS cloudDNS = feign.target(new CloudIdentityTarget<CloudDNS>(user, apiKey));
 ```
 
-You can find [several examples](https://github.com/Netflix/feign/tree/master/core/src/test/java/feign/examples) in the test tree.  Do take time to look at them, as seeing is believing!
+### Examples
+Feign includes example [GitHub](https://github.com/Netflix/feign/tree/master/example-github) and [Wikipedia](https://github.com/Netflix/feign/tree/master/example-wikipedia) clients. The denominator project can also be scraped for Feign in practice. Particularly, look at its [example daemon](https://github.com/Netflix/denominator/tree/master/example-daemon).
 
 ### Integrations
 Feign intends to work well within Netflix and other Open Source communities.  Modules are welcome to integrate with your favorite projects!
@@ -174,19 +177,110 @@ GitHub github = Feign.builder()
 ```
 
 ### Encoders
-`Feign.builder()` allows you to specify additional configuration such as how to encode a request.
-
-If any methods in your interface use parameters types besides `String` or `byte[]`, you'll need to configure a non-default `Encoder`.
-
-Here's how to configure JSON encoding (using the `feign-gson` extension):
+The simplest way to send a request body to a server is to define a `POST` method that has a `String` or `byte[]` parameter without any annotations on it. You will likely need to add a `Content-Type` header.
 
 ```java
-GitHub github = Feign.builder()
-                     .encoder(new GsonEncoder())
-                     .target(GitHub.class, "https://api.github.com");
+interface LoginClient {
+  @RequestLine("POST /")
+  @Headers("Content-Type: application/json")
+  void login(String content);
+}
+...
+client.login("{\"user_name\": \"denominator\", \"password\": \"secret\"}");
+```
+
+By configuring an `Encoder`, you can send a type-safe request body. Here's an example using the `feign-gson` extension:
+
+```java
+static class Credentials {
+  final String user_name;
+  final String password;
+
+  Credentials(String user_name, String password) {
+    this.user_name = user_name;
+    this.password = password;
+  }
+}
+
+interface LoginClient {
+  @RequestLine("POST /")
+  void login(Credentials creds);
+}
+...
+LoginClient client = Feign.builder()
+                          .encoder(new GsonEncoder())
+                          .target(LoginClient.class, "https://foo.com");
+
+client.login(new Credentials("denominator", "secret"));
+```
+
+### @Body templates
+The `@Body` annotation indicates a template to expand using parameters annotated with `@Param`. You will likely need to add a `Content-Type` header.
+
+```java
+interface LoginClient {
+
+  @RequestLine("POST /")
+  @Headers("Content-Type: application/xml")
+  @Body("<login \"user_name\"=\"{user_name}\" \"password\"=\"{password}\"/>")
+  void xml(@Param("user_name") String user, @Param("password") String password);
+
+  @RequestLine("POST /")
+  @Headers("Content-Type: application/json")
+  // json curly braces must be escaped!
+  @Body("%7B\"user_name\": \"{user_name}\", \"password\": \"{password}\"%7D")
+  void json(@Param("user_name") String user, @Param("password") String password);
+}
+...
+client.xml("denominator", "secret"); // <login "user_name"="denominator" "password"="secret"/>
+client.json("denominator", "secret"); // {"user_name": "denominator", "password": "secret"}
 ```
 
 ### Advanced usage
+
+#### Base Apis
+In many cases, apis for a service follow the same conventions. Feign supports this pattern via single-inheritance interfaces.
+
+Consider the example:
+```java
+interface BaseAPI {
+  @RequestLine("GET /health")
+  String health();
+
+  @RequestLine("GET /all")
+  List<Entity> all();
+}
+```
+
+You can define and target a specific api, inheriting the base methods.
+```java
+interface CustomAPI extends BaseAPI {
+  @RequestLine("GET /custom")
+  String custom();
+}
+```
+
+In many cases, resource representations are also consistent. For this reason, type parameters are supported on the base api interface.
+
+```java
+@Headers("Accept: application/json")
+interface BaseApi<V> {
+
+  @RequestLine("GET /api/{key}")
+  V get(@Param("key") String);
+
+  @RequestLine("GET /api")
+  List<V> list();
+
+  @Headers("Content-Type: application/json")
+  @RequestLine("PUT /api/{key}")
+  void put(@Param("key") String, V value);
+}
+
+interface FooApi extends BaseApi<Foo> { }
+
+interface BarApi extends BaseApi<Bar> { }
+```
 
 #### Logging
 You can log the http messages going to and from the target by setting up a `Logger`.  Here's the easiest way to do that:
@@ -227,7 +321,7 @@ Bank bank = Feign.builder()
                  .target(Bank.class, "https://api.examplebank.com");
 ```
 
-#### Custom Parameter Expansion
+#### Custom @Param Expansion
 Parameters annotated with `Param` expand based on their `toString`. By
 specifying a custom `Param.Expander`, users can control this behavior,
 for example formatting dates.

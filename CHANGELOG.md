@@ -1,4 +1,20 @@
+### Version 8.6
+* Adds base api support via single-inheritance interfaces
+
+### Version 7.5/8.5
+* Added possibility to leave slash encoded in path parameters
+
+### Version 8.4
+* Correct Retryer bug that prevented it from retrying requests after the first 5 retry attempts.
+  * **Note:** If you have a custom `feign.Retryer` implementation you now must now implement `public Retryer clone()`.
+  It is suggested that you simply return a new instance of your Retryer class.
+
+### Version 8.3
+* Adds client implementation for Apache Http Client 
+
 ### Version 8.2
+* Allows customized request construction by exposing `Request.create()`
+* Adds JMH benchmark module
 * Enforces source compatibility with animal-sniffer
 
 ### Version 8.1
